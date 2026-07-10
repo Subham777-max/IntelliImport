@@ -4,12 +4,21 @@ import skippedModel from "../models/skipped.model.js";
 import projectModel from "../models/project.model.js";
 
 
-export const createProject = async (name) => {
+export const createProject = async (name, userId) => {
     const newProject = new projectModel({
-        title:name
+        title: name,
+        createdBy: userId
     });
     return await newProject.save();
 }
+
+export const getProjects = async (userId) => {
+    return await projectModel.find({ createdBy: userId }).sort({ createdAt: -1 });
+};
+
+export const getProjectById = async (projectId) => {
+    return await projectModel.findById(projectId);
+};
 
 export const saveCRMRecords = async (importId, projectId, records) => {
     const crmRecords = records.imported.map((record) => ({
@@ -69,6 +78,13 @@ export const getImportById = async (importId) => {
     return await importModel.findById(importId);
 }
 
+export const getImportsByProjectId = async (projectId, page = 1, limit = 20) => {
+    return await importModel.find({ projectId })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+};
+
 export const getCRMRecords = async (
     projectId,
     page = 1,
@@ -98,6 +114,12 @@ export const getCRMRecordCount = async (importId) => {
     });
 
 }
+
+export const getSkippedRecordCount = async (importId) => {
+    return await skippedModel.countDocuments({
+        importId
+    });
+};
 
 export const getSkippedRecords = async (
     importId,
