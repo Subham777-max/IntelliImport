@@ -4,6 +4,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes.js';
+import crmRoutes from './routes/crm.route.js';
 import errorMiddleware from './middleware/error.middleware.js';
 
 const app = express();
@@ -26,6 +27,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/crm", crmRoutes);
 
 
 app.use((req, _res, next) => {
