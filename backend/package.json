@@ -13,6 +13,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@langchain/core": "^1.2.2",
+    "@langchain/mistralai": "^1.2.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -20,8 +22,10 @@
     "express": "^5.2.1",
     "express-validator": "^7.3.2",
     "jsonwebtoken": "^9.0.3",
+    "langchain": "^1.5.3",
     "mongoose": "^9.7.4",
     "morgan": "^1.11.0",
-    "papaparse": "^5.5.4"
+    "papaparse": "^5.5.4",
+    "zod": "^4.4.3"
   }
 }
