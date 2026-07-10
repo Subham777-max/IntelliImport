@@ -1,6 +1,6 @@
 import { config } from "../config/config.js";
 import { ChatMistralAI } from "@langchain/mistralai";
-import { SystemMessage } from "@langchain/core/messages";
+import { SystemMessage,HumanMessage } from "@langchain/core/messages";
 import { BatchResponseSchema } from "../llm/schema/crm.schema.js";
 
 import { SYSTEM_PROMPT } from "../llm/prompts/crm.prompt.js";
@@ -21,17 +21,10 @@ const structuredLLM = llm.withStructuredOutput(
 
 export async function processBatch(batch){
 
-    const prompt=new SystemMessage(`
+    const prompt=new SystemMessage(`${SYSTEM_PROMPT}`);
+    const humanMessage = new HumanMessage(`Process the following batch of records: ${JSON.stringify(batch)}`);
 
-${SYSTEM_PROMPT}
-
-Rows:
-
-${JSON.stringify(batch)}
-
-`);
-
-    const response=await structuredLLM.invoke(prompt);
+    const response=await structuredLLM.invoke([prompt, humanMessage]);
 
     return response;
 
