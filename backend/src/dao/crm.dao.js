@@ -20,6 +20,18 @@ export const getProjectById = async (projectId) => {
     return await projectModel.findById(projectId);
 };
 
+export const deleteProject = async (projectId) => {
+    // Delete all associated records
+    await Promise.all([
+        importModel.deleteMany({ projectId }),
+        crmModel.deleteMany({ projectId }),
+        skippedModel.deleteMany({ projectId })
+    ]);
+    
+    // Delete the project itself
+    return await projectModel.findByIdAndDelete(projectId);
+};
+
 export const saveCRMRecords = async (importId, projectId, records) => {
     const crmRecords = records.imported.map((record) => ({
         importId,

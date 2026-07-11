@@ -14,7 +14,8 @@ import {
     getCRMRecordsByImportId,
     getCRMRecordCount,
     getSkippedRecordCount,
-    getSkippedRecords
+    getSkippedRecords,
+    deleteProject
 } from "../dao/crm.dao.js";
 import NotFoundError from "../utils/errors/NotFoundError.js";
 import AppError from "../utils/errors/AppError.js";
@@ -182,5 +183,27 @@ export const getImportStatsController = catchAsync(async (req, res, _next) => {
             importedRows,
             skippedRows,
         }
+    });
+});
+
+export const deleteProjectController = catchAsync(async (req, res, next) => {
+    const { projectId } = req.params;
+    const userId = req.user.id;
+    
+    const project = await getProjectById(projectId);
+    
+    if (!project) {
+        throw new NotFoundError("Project not found");
+    }
+    
+    if (project.createdBy.toString() !== userId) {
+        throw new AppError("Access denied", 403);
+    }
+    
+    await deleteProject(projectId);
+    
+    res.status(200).json({
+        success: true,
+        message: "Project and all associated records deleted successfully"
     });
 });

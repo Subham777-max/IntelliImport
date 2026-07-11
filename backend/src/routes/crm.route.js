@@ -10,7 +10,8 @@ import {
 	getImportController,
 	getCRMRecordsByImportController,
 	getSkippedRecordsController,
-	getImportStatsController
+	getImportStatsController,
+	deleteProjectController
 } from "../controllers/crm.controller.js";
 import authMiddleware from "../middleware/auth.middleware.js";
 import validate from "../middleware/validate.middleware.js";
@@ -127,5 +128,12 @@ router.get(
 	validate,
 	getCRMRecordsController
 );
+
+/**
+ * @route DELETE /api/crm/project/:projectId
+ * @desc Delete a project and all its associated records
+ * @access Private
+ */
+router.delete("/project/:projectId", authMiddleware, projectIdValidation, validate, deleteProjectController);
 
 export default router;
