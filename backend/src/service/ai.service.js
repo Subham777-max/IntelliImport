@@ -9,7 +9,7 @@ const llm = new ChatMistralAI({
 
     apiKey: config.MISTRAL_API_KEY,
 
-    model: "mistral-large-latest",
+    model: "mistral-small-latest",
 
     temperature: 0
 
