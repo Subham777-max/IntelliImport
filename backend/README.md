@@ -17,9 +17,7 @@ This document describes the architecture, request lifecycle, data models, and AP
 | Input Validation | express-validator + Zod (for structured LLM output) |
 | Password Hashing | bcryptjs |
 | File Uploads | Multer (in-memory storage) |
-| Schema Validation | Zod |
 | Logging | Morgan |
-| Environment | dotenv |
 
 ---
 
@@ -48,13 +46,13 @@ backend/
     ├── middleware/
     │   ├── auth.middleware.js  # JWT verification from cookies
     │   ├── error.middleware.js # Centralised error handler
-    │   └── validate.middleware.js # Runs express-validator result checks
+    │   └── validate.middleware.js
     ├── models/
-    │   ├── user.model.js       # User schema with bcrypt hooks
-    │   ├── project.model.js    # Project schema
-    │   ├── import.model.js     # Import job schema with status tracking
-    │   ├── crm.model.js        # Structured CRM record schema
-    │   └── skipped.model.js    # Records rejected by the AI
+    │   ├── user.model.js
+    │   ├── project.model.js
+    │   ├── import.model.js
+    │   ├── crm.model.js
+    │   └── skipped.model.js
     ├── routes/
     │   ├── auth.routes.js      # /api/auth/* routes
     │   └── crm.route.js        # /api/crm/* routes
@@ -63,64 +61,95 @@ backend/
     │   ├── ai.service.js       # Calls the Mistral LLM with structured output
     │   └── csv.service.js      # CSV parsing and batch splitting
     ├── utils/
-    │   ├── catchAsync.js       # Wraps async handlers to forward errors
-    │   ├── setToken.js         # Signs and sets the JWT cookie
+    │   ├── catchAsync.js
+    │   ├── setToken.js
     │   └── errors/
     │       ├── AppError.js
     │       ├── AuthError.js
     │       ├── NotFoundError.js
     │       └── ValidationError.js
     └── validation/
-        ├── auth.validation.js  # express-validator rules for auth routes
-        └── crm.validation.js   # express-validator rules for CRM routes
+        ├── auth.validation.js
+        └── crm.validation.js
 ```
 
 ---
 
 ## Architecture and Layering
 
-The backend follows a strict, unidirectional layered architecture. Each layer has a single responsibility and only interacts with the layer directly below it.
+The backend follows a strict, unidirectional layered architecture. Each layer has a single responsibility and only communicates with the layer directly below it.
 
-```
-                    HTTP Request
-                        |
-                        v
-             ┌─────────────────────┐
-             │      Middleware      │
-             │  (CORS, Auth, Body,  │
-             │   Validation, Log)   │
-             └─────────┬───────────┘
-                       |
-                       v
-             ┌─────────────────────┐
-             │      Controller      │
-             │  (Request/Response)  │
-             └────┬──────────┬─────┘
-                  |          |
-          ┌───────┘          └────────┐
-          v                          v
- ┌─────────────────┐      ┌──────────────────┐
- │    Service       │      │   Service        │
- │ (auth.service)   │      │ (ai / csv svc)   │
- └────────┬────────┘      └────────┬─────────┘
-          |                        |
-          v                        v
- ┌─────────────────┐      ┌──────────────────┐
- │      DAO         │      │   LLM Layer      │
- │  (user.dao /     │      │ (crm.prompt +    │
- │   crm.dao)       │      │  crm.schema)     │
- └────────┬────────┘      └──────────────────┘
-          |
-          v
- ┌─────────────────┐
- │     MongoDB      │
- │    (Mongoose)    │
- └─────────────────┘
+```mermaid
+flowchart TD
+    A[HTTP Request] --> B[Middleware Layer\nCORS / Auth / Body / Validation / Morgan]
+    B --> C[Controller Layer\nauth.controller / crm.controller]
+    C --> D[Service Layer\nauth.service / ai.service / csv.service]
+    C --> E[DAO Layer\ncrm.dao / user.dao]
+    D --> E
+    D --> F[LLM Layer\ncrm.prompt + crm.schema]
+    F --> G[Mistral AI API]
+    E --> H[(MongoDB)]
 ```
 
 ---
 
 ## Data Models
+
+### Relationship Overview
+
+```mermaid
+erDiagram
+    USER {
+        string fullName
+        string email
+        string password
+        boolean isActive
+        date lastLoginAt
+    }
+    PROJECT {
+        string title
+        objectId createdBy
+        date createdAt
+    }
+    IMPORT {
+        objectId projectId
+        string fileName
+        string status
+        number totalRows
+        number importedRows
+        number skippedRows
+        date createdAt
+    }
+    CRMRECORD {
+        objectId importId
+        objectId projectId
+        string name
+        string email
+        string country_code
+        string mobile_without_country_code
+        string company
+        string city
+        string state
+        string country
+        string lead_owner
+        string crm_status
+        string crm_note
+        string data_source
+        string possession_time
+        string description
+    }
+    SKIPPEDRECORD {
+        objectId importId
+        objectId projectId
+        object originalRecord
+        string reason
+    }
+
+    USER ||--o{ PROJECT : "creates"
+    PROJECT ||--o{ IMPORT : "has"
+    IMPORT ||--o{ CRMRECORD : "produces"
+    IMPORT ||--o{ SKIPPEDRECORD : "produces"
+```
 
 ### User
 
@@ -134,64 +163,24 @@ The backend follows a strict, unidirectional layered architecture. Each layer ha
 
 The `pre("save")` hook hashes the password automatically. The `comparePassword` method provides safe comparison using bcrypt.
 
-### Project
+### Import — Status Lifecycle
 
-| Field | Type | Notes |
-|---|---|---|
-| `title` | String | required |
-| `createdBy` | ObjectId | ref: User |
-| `createdAt` | Date | default: now |
+```mermaid
+stateDiagram-v2
+    [*] --> processing : Import document created
+    processing --> processing : Batch saved to DB
+    processing --> completed : All batches done
+    processing --> failed : Unhandled error
+```
 
-### Import
+### CRMRecord — `crm_status` Enum
 
-Tracks the state of a single CSV file upload and its processing job.
-
-| Field | Type | Notes |
-|---|---|---|
-| `projectId` | ObjectId | ref: Project |
-| `fileName` | String | original file name |
-| `status` | String | enum: `processing`, `completed`, `failed` |
-| `totalRows` | Number | |
-| `importedRows` | Number | rows accepted by the AI |
-| `skippedRows` | Number | rows rejected by the AI |
-| `createdAt` | Date | |
-
-### CRMRecord
-
-Stores a single structured lead record produced by the AI.
-
-| Field | Type |
+| Value | Meaning |
 |---|---|
-| `importId` | ObjectId |
-| `projectId` | ObjectId |
-| `name` | String |
-| `email` | String |
-| `country_code` | String |
-| `mobile_without_country_code` | String |
-| `company` | String |
-| `city` | String |
-| `state` | String |
-| `country` | String |
-| `lead_owner` | String |
-| `crm_status` | String (enum) |
-| `crm_note` | String |
-| `data_source` | String |
-| `possession_time` | String |
-| `description` | String |
-| `created_at` | String |
-
-`crm_status` is constrained to: `GOOD_LEAD_FOLLOW_UP`, `DID_NOT_CONNECT`, `BAD_LEAD`, `SALE_DONE`.
-
-### SkippedRecord
-
-Stores raw rows that the AI determined were invalid.
-
-| Field | Type | Notes |
-|---|---|---|
-| `importId` | ObjectId | |
-| `projectId` | ObjectId | |
-| `originalRecord` | Object | the raw CSV row |
-| `reason` | String | AI-provided explanation |
+| `GOOD_LEAD_FOLLOW_UP` | Qualified lead requiring follow-up |
+| `DID_NOT_CONNECT` | Contact attempt made, no response |
+| `BAD_LEAD` | Lead disqualified |
+| `SALE_DONE` | Conversion completed |
 
 ---
 
@@ -199,52 +188,20 @@ Stores raw rows that the AI determined were invalid.
 
 This is the core workflow of the application. When a user uploads a CSV file, the following sequence executes synchronously within a single HTTP request.
 
-```
-Client sends POST /api/crm/import (multipart/form-data)
-        |
-        v
-Multer stores file in memory as Buffer
-        |
-        v
-1. createImportRecord()
-   Create an Import document with status: "processing"
-        |
-        v
-2. parseCSV()
-   PapaParse converts the raw buffer string
-   into an array of row objects
-        |
-        v
-3. splitIntoBatches()
-   Rows are chunked into batches of 100
-        |
-        v
-4. for each batch:
-   ┌────────────────────────────────────────────────┐
-   │                                                │
-   │  processBatch()  ──►  Mistral AI               │
-   │  (SYSTEM_PROMPT + batch JSON as HumanMessage)  │
-   │                                                │
-   │  AI returns structured output:                 │
-   │  {                                             │
-   │    imported: [CRMRecord, ...],                 │
-   │    skipped:  [{ originalRecord, reason }, ...] │
-   │  }                                             │
-   │                                                │
-   │  saveCRMRecords()                              │
-   │    - insertMany into CRMRecord collection      │
-   │    - insertMany into SkippedRecord collection  │
-   │                                                │
-   │  updateImportProgress()                        │
-   │    - $inc importedRows, skippedRows, totalRows │
-   │    - $set status: "processing"                 │
-   └────────────────────────────────────────────────┘
-        |
-        v
-5. updateImportProgress() with status: "completed"
-        |
-        v
-Response: { success: true, importId }
+```mermaid
+flowchart TD
+    A[POST /api/crm/import\nmultipart/form-data] --> B[Multer stores file\nas in-memory Buffer]
+    B --> C[createImportRecord\nstatus: processing]
+    C --> D[parseCSV\nPapaParse converts buffer to row array]
+    D --> E[splitIntoBatches\n100 rows per batch]
+    E --> F{For each batch}
+    F --> G[processBatch\nSend to Mistral AI]
+    G --> H[AI returns\nimported and skipped arrays]
+    H --> I[saveCRMRecords\ninsertMany to CRMRecord and SkippedRecord]
+    I --> J[updateImportProgress\n$inc importedRows skippedRows totalRows]
+    J --> F
+    F -- All batches done --> K[updateImportProgress\nstatus: completed]
+    K --> L[Response: 200\n success: true, importId]
 ```
 
 ---
@@ -253,131 +210,164 @@ Response: { success: true, importId }
 
 The AI layer uses LangChain with the `ChatMistralAI` adapter.
 
-**Model**: `mistral-small-latest`  
-**Temperature**: `0` (deterministic, no hallucination)  
-**Output mode**: Structured output enforced via a Zod schema
+- **Model**: `mistral-small-latest`
+- **Temperature**: `0` (deterministic output)
+- **Output mode**: Structured output enforced via a Zod schema
 
-The system prompt instructs the model to:
-- Skip rows that have neither an email nor a phone number
-- Map data to a fixed set of CRM statuses
-- Map data to a fixed set of data sources
-- Place the first phone/email into primary fields and route additional ones into `crm_note`
-- Return only structured data matching the `BatchResponseSchema`
+```mermaid
+flowchart LR
+    A[Batch of CSV rows\nJSON array] --> B[SystemMessage\nSYSTEM_PROMPT]
+    A --> C[HumanMessage\nProcess this batch]
+    B --> D[ChatMistralAI\n.withStructuredOutput]
+    C --> D
+    D --> E{Zod validates\nBatchResponseSchema}
+    E -- valid --> F["{ imported: CRMRecord[],\n  skipped: SkippedRecord[] }"]
+    E -- invalid --> G[LangChain retries\nor throws]
+```
 
-The `BatchResponseSchema` (Zod) defines the exact shape the LLM must return. LangChain's `.withStructuredOutput()` enforces this contract, preventing malformed responses from reaching the database layer.
+The system prompt instructs the model to skip rows with no email and no phone, enforce a controlled vocabulary for status and data source values, and return only structured JSON.
 
 ---
 
 ## Authentication Flow
 
-```
-Registration:
-  POST /api/auth/register
-    │
-    ├── express-validator runs registerValidation rules
-    ├── validate middleware checks for errors
-    ├── authController.register()
-    │     └── authService.registerUser()
-    │           ├── findUserByEmail() – throws 409 if exists
-    │           └── createUser()     – bcrypt hashes password via pre-save hook
-    └── setToken() – signs JWT, sets HTTP-only cookie
-        └── sendResponse() – returns user data (no password)
+```mermaid
+sequenceDiagram
+    participant Client
+    participant AuthMiddleware
+    participant Controller
+    participant Service
+    participant DAO
+    participant DB
 
-Login:
-  POST /api/auth/login
-    │
-    ├── loginValidation + validate
-    ├── authController.login()
-    │     └── authService.loginUser()
-    │           ├── findUserByEmail() – throws 401 if not found
-    │           └── user.comparePassword() – bcrypt compare
-    └── setToken() + sendResponse()
+    Note over Client,DB: Registration
+    Client->>Controller: POST /api/auth/register
+    Controller->>Service: registerUser(body)
+    Service->>DAO: findUserByEmail(email)
+    DAO->>DB: User.findOne
+    DB-->>DAO: null
+    DAO-->>Service: null
+    Service->>DAO: createUser(userData)
+    DAO->>DB: user.save()
+    DB-->>DAO: User doc
+    DAO-->>Service: User doc
+    Service-->>Controller: User doc
+    Controller->>Client: 201 + JWT cookie
 
-Protected Route Access:
-  Any Private Route
-    │
-    ├── authMiddleware
-    │     ├── reads req.cookies.token
-    │     ├── jwt.verify(token, JWT_SECRET)
-    │     └── attaches decoded payload to req.user
-    └── Controller proceeds with req.user.id
+    Note over Client,DB: Protected Route Access
+    Client->>AuthMiddleware: GET /api/auth/me (cookie)
+    AuthMiddleware->>AuthMiddleware: jwt.verify(token)
+    AuthMiddleware->>Controller: req.user attached
+    Controller->>Service: getMe(req.user.id)
+    Service->>DAO: findUserById
+    DAO->>DB: User.findById
+    DB-->>Controller: User doc
+    Controller->>Client: 200 + user data
 ```
 
 ---
 
 ## API Reference
 
-### Authentication Routes (`/api/auth`)
+### Authentication Routes — `/api/auth`
 
 | Method | Path | Access | Description |
 |---|---|---|---|
-| `POST` | `/register` | Public | Register a new user. Accepts `fullName`, `email`, `password`. |
-| `POST` | `/login` | Public | Login and receive a JWT cookie. Accepts `email`, `password`. |
+| `POST` | `/register` | Public | Register a new user. Body: `fullName`, `email`, `password`. |
+| `POST` | `/login` | Public | Login and receive a JWT cookie. Body: `email`, `password`. |
 | `POST` | `/logout` | Private | Clears the JWT cookie. |
-| `GET` | `/me` | Private | Returns the authenticated user's profile. |
+| `GET` | `/me` | Private | Returns the authenticated user profile. |
 
-### CRM Routes (`/api/crm`)
+### CRM Routes — `/api/crm`
 
 | Method | Path | Access | Description |
 |---|---|---|---|
 | `GET` | `/projects` | Private | List all projects for the authenticated user. |
 | `POST` | `/project` | Private | Create a new project. Body: `{ name }`. |
 | `GET` | `/project/:projectId` | Private | Get a specific project. |
-| `DELETE` | `/project/:projectId` | Private | Delete a project and all associated imports, CRM records, and skipped records. |
+| `DELETE` | `/project/:projectId` | Private | Delete project and all its associated data. |
 | `GET` | `/projects/:projectId/imports` | Private | List imports for a project. Supports `?page` and `?limit`. |
-| `POST` | `/import` | Private | Upload and process a CSV file. Multipart form with `file` and `projectId`. |
+| `POST` | `/import` | Private | Upload and process a CSV file. Multipart: `file` + `projectId`. |
 | `GET` | `/imports/:importId` | Private | Get a single import record. |
 | `GET` | `/imports/:importId/records` | Private | Get paginated CRM records for an import. |
 | `GET` | `/imports/:importId/skipped` | Private | Get paginated skipped records for an import. |
-| `GET` | `/imports/:importId/stats` | Private | Get import statistics (imported count, skipped count). |
-| `GET` | `/records/:projectId` | Private | Get all CRM records across an entire project (paginated). |
+| `GET` | `/imports/:importId/stats` | Private | Get import statistics. |
+| `GET` | `/records/:projectId` | Private | Get all CRM records across a project (paginated). |
 
 ### Health Check
 
-| Method | Path | Access | Description |
-|---|---|---|---|
-| `GET` | `/health` | Public | Returns service status and timestamp. |
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Returns service status and timestamp. |
 
 ---
 
 ## Error Handling
 
-All errors flow through the centralised `error.middleware.js`. The middleware distinguishes between operational errors (expected, thrown explicitly via custom error classes) and programming errors (unexpected).
+All errors flow through the centralised `error.middleware.js`.
 
-**Custom Error Hierarchy:**
-
+```mermaid
+flowchart TD
+    A[Async Controller throws] --> B[catchAsync\ncatches rejected Promise]
+    B --> C[next called with error object]
+    C --> D{Is it operational?}
+    D -- Yes --> E[Log nothing\nSend structured JSON response]
+    D -- No --> F[console.error full stack\nSend 500 response]
+    E --> G["{ success: false, status, message, errors }"]
+    F --> G
 ```
-AppError          (base – statusCode, isOperational = true)
-├── AuthError     (401 Unauthorized)
-├── NotFoundError (404 Not Found)
-└── ValidationError
-```
 
-All controller functions are wrapped in `catchAsync`, which catches rejected promises and forwards them to `next(error)`, ensuring the global error handler always receives control.
+### Custom Error Hierarchy
+
+```mermaid
+classDiagram
+    class AppError {
+        +string message
+        +number statusCode
+        +boolean isOperational
+    }
+    class AuthError {
+        +statusCode = 401
+    }
+    class NotFoundError {
+        +statusCode = 404
+    }
+    class ValidationError {
+        +statusCode = 422
+    }
+    AppError <|-- AuthError
+    AppError <|-- NotFoundError
+    AppError <|-- ValidationError
+```
 
 ---
 
 ## Cascading Deletion
 
-Deleting a project triggers a coordinated cleanup. The `deleteProject` DAO function runs three `deleteMany` operations in parallel before removing the project document itself.
+Deleting a project triggers coordinated cleanup across all collections.
 
-```
-DELETE /api/crm/project/:projectId
-  │
-  ├── Verify project exists          (NotFoundError if not)
-  ├── Verify ownership               (AppError 403 if not owner)
-  └── deleteProject(projectId)
-        ├── importModel.deleteMany({ projectId })
-        ├── crmModel.deleteMany({ projectId })
-        ├── skippedModel.deleteMany({ projectId })
-        └── projectModel.findByIdAndDelete(projectId)
+```mermaid
+flowchart TD
+    A[DELETE /api/crm/project/:projectId] --> B[getProjectById]
+    B --> C{Project exists?}
+    C -- No --> D[throw NotFoundError 404]
+    C -- Yes --> E{Owned by requester?}
+    E -- No --> F[throw AppError 403]
+    E -- Yes --> G[deleteProject DAO]
+    G --> H[importModel.deleteMany]
+    G --> I[crmModel.deleteMany]
+    G --> J[skippedModel.deleteMany]
+    H --> K[projectModel.findByIdAndDelete]
+    I --> K
+    J --> K
+    K --> L[200 OK]
 ```
 
 ---
 
 ## Environment Variables
 
-The `config.js` module reads these variables and throws immediately on startup if any are missing.
+The `config.js` module throws immediately on startup if any required variable is absent.
 
 | Variable | Required | Description |
 |---|---|---|
@@ -397,4 +387,4 @@ npm install
 npm run dev   # starts with nodemon on port 3000
 ```
 
-The server listens on `http://localhost:3000`. CORS is configured to allow requests from `http://localhost:5173` (Vite dev server).
+CORS is configured to allow requests from `http://localhost:5173` (Vite dev server) and the production Vercel domain.
