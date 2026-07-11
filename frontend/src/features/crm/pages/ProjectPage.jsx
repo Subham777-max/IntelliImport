@@ -32,6 +32,7 @@ const Pagination = ({ page, hasPrev, hasNext, onPrev, onNext }) => (
 );
 
 const CRMTable = ({ records, loading }) => {
+    const [expandedCell, setExpandedCell] = useState(null);
     if (loading) return <div className="flex justify-center p-10"><div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /></div>;
     if (!records.length) return <EmptyState title="No records found" subtitle="No CRM records available for this selection." />;
     return (
@@ -41,15 +42,29 @@ const CRMTable = ({ records, loading }) => {
                     <tr>{CRM_COLUMNS.map(col => <th key={col} className="px-3 py-2 text-[10px] font-semibold text-neutral-500 whitespace-nowrap border-r border-neutral-200 last:border-r-0">{col}</th>)}</tr>
                 </thead>
                 <tbody>
-                    {records.map((rec, i) => (
-                        <tr key={rec._id || i} className={`border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50 transition-colors ${i % 2 === 1 ? 'bg-neutral-50/40' : ''}`}>
-                            {CRM_COLUMNS.map(col => (
-                                <td key={col} className="px-3 py-2 text-xs text-neutral-700 whitespace-nowrap max-w-[180px] truncate border-r border-neutral-100 last:border-r-0" title={rec[col]}>
-                                    {rec[col] || <span className="text-neutral-300">—</span>}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
+                    {records.map((rec, i) => {
+                        return (
+                            <tr 
+                                key={rec._id || i} 
+                                className={`border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50 transition-colors ${i % 2 === 1 ? 'bg-neutral-50/40' : ''}`}
+                            >
+                                {CRM_COLUMNS.map(col => {
+                                    const cellId = `${rec._id || i}-${col}`;
+                                    const isExpanded = expandedCell === cellId;
+                                    return (
+                                        <td 
+                                            key={col} 
+                                            onDoubleClick={() => setExpandedCell(isExpanded ? null : cellId)}
+                                            className={`px-3 py-2 text-xs text-neutral-700 border-r border-neutral-100 last:border-r-0 cursor-pointer ${isExpanded ? 'whitespace-normal min-w-[250px] bg-neutral-100/50' : 'whitespace-nowrap max-w-[180px] truncate'}`} 
+                                            title={!isExpanded ? rec[col] : undefined}
+                                        >
+                                            {rec[col] || <span className="text-neutral-300">—</span>}
+                                        </td>
+                                    )
+                                })}
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>

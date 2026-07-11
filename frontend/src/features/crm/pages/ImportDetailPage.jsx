@@ -48,6 +48,7 @@ const Pagination = ({ page, onPrev, onNext, hasPrev, hasNext }) => (
 
 // ─── CRM Records Table ────────────────────────────────────────────────────────
 const CRMTable = ({ records, loading }) => {
+    const [expandedCell, setExpandedCell] = useState(null);
     if (loading) {
         return (
             <div className="flex justify-center p-10">
@@ -71,22 +72,29 @@ const CRMTable = ({ records, loading }) => {
                     </tr>
                 </thead>
                 <tbody>
-                    {records.map((rec, i) => (
-                        <tr
-                            key={rec._id || i}
-                            className={`border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50 transition-colors ${i % 2 === 1 ? 'bg-neutral-50/40' : ''}`}
-                        >
-                            {CRM_COLUMNS.map(col => (
-                                <td
-                                    key={col}
-                                    className="px-4 py-2 text-xs text-neutral-700 whitespace-nowrap max-w-[200px] truncate border-r border-neutral-100 last:border-r-0"
-                                    title={rec[col]}
-                                >
-                                    {rec[col] || <span className="text-neutral-300">—</span>}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
+                    {records.map((rec, i) => {
+                        return (
+                            <tr
+                                key={rec._id || i}
+                                className={`border-b border-neutral-100 last:border-b-0 hover:bg-neutral-50 transition-colors ${i % 2 === 1 ? 'bg-neutral-50/40' : ''}`}
+                            >
+                                {CRM_COLUMNS.map(col => {
+                                    const cellId = `${rec._id || i}-${col}`;
+                                    const isExpanded = expandedCell === cellId;
+                                    return (
+                                        <td
+                                            key={col}
+                                            onDoubleClick={() => setExpandedCell(isExpanded ? null : cellId)}
+                                            className={`px-4 py-2 text-xs text-neutral-700 border-r border-neutral-100 last:border-r-0 cursor-pointer ${isExpanded ? 'whitespace-normal min-w-[250px] bg-neutral-100/50' : 'whitespace-nowrap max-w-[200px] truncate'}`}
+                                            title={!isExpanded ? rec[col] : undefined}
+                                        >
+                                            {rec[col] || <span className="text-neutral-300">—</span>}
+                                        </td>
+                                    )
+                                })}
+                            </tr>
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
